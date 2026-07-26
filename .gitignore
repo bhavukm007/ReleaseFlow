@@ -5,6 +5,9 @@ __pycache__/
 .pytest_cache/
 node_modules/
 dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
 .coverage
 .DS_Store
 .idea/

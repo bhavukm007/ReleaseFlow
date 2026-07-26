@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.core.config import Settings
 from app.schemas.release import DEFAULT_STEP_NAMES
 
 
@@ -36,3 +37,11 @@ def test_rejects_invalid_step_shape(client: TestClient) -> None:
     release = create_release(client)
     response = client.patch(f"/releases/{release['id']}/steps", json={"steps": {"Code Freeze": True}})
     assert response.status_code == 422
+
+
+def test_render_database_url_uses_psycopg_driver() -> None:
+    settings = Settings(
+        database_url="postgresql://user:password@database.internal/releaseflow",
+        _env_file=None,
+    )
+    assert settings.database_url == "postgresql+psycopg://user:password@database.internal/releaseflow"
