@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply m-0 bg-cream font-sans antialiased; }
+  button, a, input, textarea { @apply transition; }
+  button:disabled { @apply cursor-not-allowed opacity-55; }
+}
+@layer components {
+  .btn-primary { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-brand px-5 py-3 font-bold text-white shadow-sm hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-brand/30; }
+  .btn-secondary { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 font-bold text-slate-700 hover:border-slate-300 hover:bg-slate-50; }
+  .field { @apply mb-4 block text-sm font-bold text-slate-700; }
+  .field input, .field textarea { @apply mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-brand focus:ring-2 focus:ring-brand/10; }
+  .field span { @apply mt-1 block text-xs font-semibold text-red-600; }
+  .field em { @apply ml-1 font-normal not-italic text-slate-400; }
+  .state { @apply rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center; }
+  .state h2 { @apply text-xl font-black; }
+  .state p { @apply mx-auto mt-2 max-w-lg text-slate-500; }
+  .panel { @apply rounded-2xl border border-slate-200 bg-white p-6 shadow-sm; }
+  .eyebrow { @apply text-xs font-bold uppercase tracking-[.2em] text-brand; }
+  .section-title { @apply mt-1 text-2xl font-black; }
+}
