@@ -65,6 +65,22 @@ beforeEach(() => {
   });
 });
 
+it("renders legacy release responses that do not include collaborators", async () => {
+  const legacyRelease = { ...plannedRelease } as Partial<Release>;
+  delete legacyRelease.collaborators;
+  vi.mocked(releaseApi.get).mockResolvedValue(legacyRelease as Release);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  render(
+    <QueryClientProvider client={queryClient}><MemoryRouter initialEntries={["/releases/7"]}>
+      <Routes><Route path="/releases/:id" element={<ReleaseDetailsPage />} /></Routes>
+    </MemoryRouter></QueryClientProvider>,
+  );
+
+  expect(await screen.findByRole("heading", { name: "Production Launch" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Teammates" })).toBeInTheDocument();
+});
+
 it("updates a checklist step and refreshes status and progress immediately", async () => {
   const user = userEvent.setup();
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
