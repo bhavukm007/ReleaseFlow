@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -24,6 +25,8 @@ class ReleaseCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     due_date: date
     additional_info: str | None = Field(default=None, max_length=10_000)
+    checklist_items: list[str] | None = None
+    team_id: UUID | None = None
 
     @field_validator("name")
     @classmethod
@@ -33,9 +36,25 @@ class ReleaseCreate(BaseModel):
             raise ValueError("Name is required")
         return value
 
+    @field_validator("checklist_items")
+    @classmethod
+    def clean_checklist(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return value
+        cleaned = [item.strip() for item in value if item.strip()]
+        if not cleaned:
+            raise ValueError("A release must contain at least one checklist item")
+        if len(set(item.casefold() for item in cleaned)) != len(cleaned):
+            raise ValueError("Checklist item names must be unique")
+        if any(len(item) > 200 for item in cleaned):
+            raise ValueError("Checklist item names cannot exceed 200 characters")
+        return cleaned
 
-class ReleaseUpdate(ReleaseCreate):
-    pass
+
+class ReleaseUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    due_date: date
+    additional_info: str | None = Field(default=None, max_length=10_000)
 
 
 class StepsUpdate(BaseModel):
@@ -47,6 +66,23 @@ class StepsUpdate(BaseModel):
         if set(value) != set(DEFAULT_STEP_NAMES):
             raise ValueError("Steps must contain exactly the eight default steps")
         return {name: value[name] for name in DEFAULT_STEP_NAMES}
+
+
+class ChecklistItem(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    completed: bool = False
+
+
+class ChecklistUpdate(BaseModel):
+    items: list[ChecklistItem] = Field(min_length=1)
+
+    @field_validator("items")
+    @classmethod
+    def unique_names(cls, value: list[ChecklistItem]) -> list[ChecklistItem]:
+        names = [item.name.strip() for item in value]
+        if len(set(name.casefold() for name in names)) != len(names):
+            raise ValueError("Checklist item names must be unique")
+        return [ChecklistItem(name=name, completed=item.completed) for name, item in zip(names, value, strict=True)]
 
 
 class InfoUpdate(BaseModel):
@@ -66,3 +102,5 @@ class ReleaseRead(BaseModel):
     total_steps: int
     created_at: datetime
     updated_at: datetime
+    owner_id: UUID
+    team_id: UUID | None

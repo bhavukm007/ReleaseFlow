@@ -9,6 +9,8 @@ from sqlalchemy.pool import StaticPool
 from app.database.base import Base
 from app.database.session import get_db
 from app.main import app
+from app.core.security import create_access_token, hash_password
+from app.models.user import User
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 TestingSession = sessionmaker(bind=engine, expire_on_commit=False)
@@ -28,6 +30,12 @@ def client() -> Generator[TestClient, None, None]:
             yield session
 
     app.dependency_overrides[get_db] = override_db
-    with TestClient(app) as test_client:
+    with TestingSession() as session:
+        user = User(full_name="Test User", email="test@example.com", hashed_password=hash_password("TestPassword123!"))
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        token, _ = create_access_token(user.id)
+    with TestClient(app, headers={"Authorization": f"Bearer {token}"}) as test_client:
         yield test_client
     app.dependency_overrides.clear()

@@ -1,149 +1,201 @@
 # ReleaseFlow
 
-ReleaseFlow is a single-user release checklist application for tracking software releases from planning through post-deployment verification. Checklist progress and release status are always computed together, so the displayed state cannot drift from the underlying steps.
+ReleaseFlow is a collaborative release-management SaaS application. Individuals and role-controlled teams can plan releases, customize ordered checklists, update notes, and see changes and audit history in real time.
 
-## Project Links
+## Project links
 
 - GitHub: [https://github.com/bhavukm007/ReleaseFlow](https://github.com/bhavukm007/ReleaseFlow)
-- Live frontend: `https://releaseflow-web-bhavukm007.onrender.com` *(available after Blueprint deployment)*
-- API: `https://releaseflow-api-bhavukm007.onrender.com` *(available after Blueprint deployment)*
-- API documentation: `https://releaseflow-api-bhavukm007.onrender.com/docs` *(available after Blueprint deployment)*
+- Live application: `https://releaseflow-web-bhavukm007.onrender.com`
+- API: `https://releaseflow-api-bhavukm007.onrender.com`
+- Interactive API docs: `https://releaseflow-api-bhavukm007.onrender.com/docs`
 
-If Render requires a different service name because one is already taken, replace the corresponding URL above and update `VITE_API_URL` and `CORS_ORIGINS` in the Render dashboard.
+The Render URLs become active after deploying the Blueprint. If Render changes a service name, update these links and the corresponding Render environment variables.
 
 ## Features
 
-- Create, view, update, search, sort, and delete releases
-- A fixed eight-step checklist with immediate optimistic updates
+- Email/password signup and login with bcrypt, short-lived JWT access tokens, rotating refresh tokens, secure HTTP-only cookies, logout, and session revocation
+- Private releases plus collaborative team workspaces
+- Owner, admin, and member permissions enforced by the API
+- Existing-user and pending-email team invitations with automatic membership on signup
+- Dynamic ordered JSON checklists: add, rename, delete, reorder, check, and uncheck steps
 - Automatically computed `planned`, `ongoing`, and `done` statuses
-- Progress count and animated progress bar
-- Editable additional information
-- Responsive desktop, tablet, and mobile interface
-- Loading, empty, error, confirmation, and toast states
-- OpenAPI documentation, Alembic migrations, sample data, and automated tests
+- Activity timelines and WebSocket-driven synchronization
+- Search, due-date sorting, pagination-ready API, optimistic checklist updates, caching, route-level code splitting, skeletons, toasts, and dark mode
+- Responsive React UI, PostgreSQL persistence, Alembic migrations, Docker, Render Blueprint, and automated tests
 
 ## Architecture
 
-The React/Vite single-page application calls a FastAPI REST API through a typed Axios service. FastAPI routes use dependency-injected SQLAlchemy sessions and a service layer. PostgreSQL stores one `releases` table, with checklist state embedded in a JSON column. Alembic manages schema changes.
-
 ```text
-Browser
-  |
-  +-- React/Vite static site
-          |
-          +-- Axios / JSON REST API
-                  |
-                  +-- FastAPI + SQLAlchemy
-                          |
-                          +-- PostgreSQL
+React + TypeScript SPA
+  |-- Axios REST requests (Bearer access token)
+  |-- HTTP-only refresh cookie
+  `-- authenticated WebSocket
+             |
+FastAPI API
+  |-- Pydantic request/response validation
+  |-- authorization dependencies and service layer
+  |-- SQLAlchemy 2.0 connection pool
+  `-- activity and realtime services
+             |
+PostgreSQL + Alembic
 ```
 
-## Folder Structure
+The access token is kept only in browser memory. The longer-lived refresh token is stored in a secure, HTTP-only cookie, hashed in the database, rotated on refresh, and revoked on logout. API queries enforce personal ownership or active team membership. Destructive team operations require an owner or admin, while team deletion and ownership transfer require the owner.
+
+## Database schema
+
+```mermaid
+erDiagram
+    USERS ||--o{ RELEASES : owns
+    USERS ||--o{ TEAM_MEMBERS : joins
+    USERS ||--o{ AUTH_SESSIONS : has
+    USERS ||--o{ ACTIVITIES : performs
+    USERS ||--o{ TEAM_INVITATIONS : sends
+    USERS ||--o{ TEAMS : owns
+    TEAMS ||--o{ TEAM_MEMBERS : contains
+    TEAMS ||--o{ TEAM_INVITATIONS : has
+    TEAMS ||--o{ RELEASES : contains
+    RELEASES ||--o{ ACTIVITIES : records
+
+    USERS {
+      uuid id PK
+      varchar full_name
+      varchar email UK
+      varchar hashed_password
+      timestamptz created_at
+      timestamptz updated_at
+      timestamptz last_login
+    }
+    RELEASES {
+      int id PK
+      uuid owner_id FK
+      uuid team_id FK
+      varchar name
+      date due_date
+      text additional_info
+      json steps
+      timestamptz created_at
+      timestamptz updated_at
+    }
+    TEAMS {
+      uuid id PK
+      varchar name
+      uuid owner_id FK
+      timestamptz created_at
+    }
+    TEAM_MEMBERS {
+      uuid id PK
+      uuid team_id FK
+      uuid user_id FK
+      enum role
+    }
+    TEAM_INVITATIONS {
+      uuid id PK
+      uuid team_id FK
+      varchar email
+      enum role
+      uuid invited_by FK
+      timestamptz created_at
+    }
+    AUTH_SESSIONS {
+      uuid id PK
+      uuid user_id FK
+      varchar token_hash UK
+      timestamptz expires_at
+      timestamptz revoked_at
+    }
+    ACTIVITIES {
+      uuid id PK
+      int release_id FK
+      uuid team_id FK
+      uuid user_id FK
+      varchar action
+      json metadata
+      timestamptz created_at
+    }
+```
+
+Checklist items remain embedded in each release's ordered JSON object; there is no steps table. A release is personal when `team_id` is null and collaborative when `team_id` references a team.
+
+## API
+
+All routes except signup, login, refresh, health, and the OpenAPI pages require `Authorization: Bearer <access-token>`.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/auth/signup` | Create an account and accept matching pending invitations |
+| `POST` | `/auth/login` | Authenticate and issue tokens |
+| `POST` | `/auth/refresh` | Rotate a refresh token and issue a new access token |
+| `POST` | `/auth/logout` | Revoke the refresh session and clear its cookie |
+| `GET` | `/auth/me` | Return the authenticated user |
+| `GET` | `/releases?team_id=&offset=&limit=` | List accessible personal or team releases |
+| `GET` | `/releases/{id}` | Read an accessible release |
+| `POST` | `/releases` | Create a personal or team release |
+| `PUT` | `/releases/{id}` | Update release fields |
+| `PATCH` | `/releases/{id}/steps` | Legacy fixed-checklist-compatible update |
+| `PATCH` | `/releases/{id}/checklist` | Replace the ordered dynamic checklist |
+| `PATCH` | `/releases/{id}/info` | Update release notes |
+| `GET` | `/releases/{id}/activities` | Read the newest activity first |
+| `GET` | `/activities?limit=` | Read recent accessible workspace activity |
+| `DELETE` | `/releases/{id}` | Delete an authorized release |
+| `GET` | `/teams` | List teams and membership details |
+| `POST` | `/teams` | Create a team |
+| `GET` | `/teams/{id}` | Read a team |
+| `POST` | `/teams/{id}/invitations` | Invite or immediately add a user |
+| `DELETE` | `/teams/{id}/members/{user_id}` | Remove a member |
+| `POST` | `/teams/{id}/transfer` | Transfer ownership |
+| `DELETE` | `/teams/{id}` | Delete a team |
+| `WS` | `/ws?token=<access-token>` | Receive authorized workspace invalidation events |
+| `GET` | `/health` | Health check |
+
+FastAPI exposes the complete generated contract at `/docs` and `/openapi.json`.
+
+## Status computation
+
+- `planned`: no checklist items are completed
+- `ongoing`: at least one but not all items are completed
+- `done`: all items are completed
+
+Status and progress counts are computed from checklist JSON and are never stored.
+
+## Repository layout
 
 ```text
 ReleaseFlow/
 |-- backend/
-|   |-- alembic/              # Database migrations
-|   |-- app/
-|   |   |-- api/              # HTTP routes
-|   |   |-- core/             # Environment configuration
-|   |   |-- database/         # Engine and session dependency
-|   |   |-- models/           # SQLAlchemy model
-|   |   |-- schemas/          # Pydantic request/response contracts
-|   |   |-- services/         # Release business logic
-|   |   `-- main.py
+|   |-- alembic/versions/       # Additive schema migrations
+|   |-- app/api/                # Auth, releases, teams, realtime
+|   |-- app/core/               # Settings and token/password security
+|   |-- app/database/           # Engine and session dependency
+|   |-- app/models/             # SQLAlchemy models
+|   |-- app/schemas/            # Pydantic contracts
+|   |-- app/services/           # Business rules, permissions, activity
 |   |-- tests/
 |   |-- Dockerfile
 |   `-- seed.py
 |-- frontend/
-|   |-- src/
-|   |   |-- api/
-|   |   |-- components/
-|   |   |-- hooks/
-|   |   `-- pages/
-|   `-- Dockerfile
+|   |-- src/api/                # Typed Axios clients
+|   |-- src/components/
+|   |-- src/contexts/
+|   |-- src/hooks/
+|   |-- src/pages/
+|   |-- Dockerfile
+|   `-- nginx.conf
 |-- docker-compose.yml
 `-- render.yaml
 ```
 
-## Database Schema
+## Local development
 
-ReleaseFlow intentionally uses one table.
-
-### `releases`
-
-| Column | Type | Constraints / purpose |
-|---|---|---|
-| `id` | integer | Primary key |
-| `name` | varchar(200) | Required |
-| `due_date` | date | Required |
-| `additional_info` | text | Nullable |
-| `steps` | JSON | Required; eight named boolean values |
-| `created_at` | timestamp with time zone | Required |
-| `updated_at` | timestamp with time zone | Required |
-
-Every release contains exactly these steps:
-
-1. Code Freeze
-2. QA Completed
-3. Documentation Updated
-4. Security Review
-5. Performance Testing
-6. Deployment Ready
-7. Production Deployment
-8. Post Deployment Verification
-
-There is no separate steps table.
-
-## API Endpoints
-
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/releases` | List releases ordered by due date |
-| `GET` | `/releases/{id}` | Get one release |
-| `POST` | `/releases` | Create a release |
-| `PUT` | `/releases/{id}` | Replace editable release fields |
-| `PATCH` | `/releases/{id}/steps` | Update the eight checklist states |
-| `PATCH` | `/releases/{id}/info` | Update additional information |
-| `DELETE` | `/releases/{id}` | Delete a release |
-| `GET` | `/health` | Health check |
-
-Local interactive API documentation is available at `http://localhost:8000/docs`.
-
-## Status Computation
-
-- `planned`: zero steps completed
-- `ongoing`: at least one, but fewer than eight, completed
-- `done`: all eight steps completed
-
-Status, completed-step count, and total-step count are response fields. They are never stored in the database.
-
-## Local Setup
-
-Requirements: Python 3.12+, Node.js 20.19+ or 22.12+, and PostgreSQL 15+.
+Requirements: Python 3.12+, Node.js 20.19+ or 22.12+, PostgreSQL 15+.
 
 ### Backend
 
 ```bash
 cd backend
 python -m venv .venv
-```
-
-Activate the environment:
-
-```powershell
-# Windows PowerShell
-.\.venv\Scripts\Activate.ps1
-```
-
-```bash
-# macOS/Linux
-source .venv/bin/activate
-```
-
-Then install and run:
-
-```bash
+# PowerShell: .\.venv\Scripts\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 alembic upgrade head
@@ -151,11 +203,7 @@ python seed.py
 uvicorn app.main:app --reload
 ```
 
-On Windows without a Unix-style `cp` command, copy `.env.example` to `.env` in File Explorer or run:
-
-```powershell
-Copy-Item .env.example .env
-```
+On PowerShell, use `Copy-Item .env.example .env` instead of `cp` if needed. The seed creates three releases and prints the local demo credentials.
 
 ### Frontend
 
@@ -168,90 +216,114 @@ npm run dev
 
 Open `http://localhost:5173`.
 
-### Tests and Production Build
+### Tests and build
 
 ```bash
 cd backend
 pytest
 
 cd ../frontend
-npm test
+npm test -- --run
 npm run build
 ```
 
-## Environment Variables
+## Environment variables
 
 ### Backend
 
-| Variable | Example | Purpose |
-|---|---|---|
-| `DATABASE_URL` | `postgresql+psycopg://releaseflow:releaseflow@localhost:5432/releaseflow` | SQLAlchemy connection URL |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed browser origins |
-| `PORT` | `8000` | Container HTTP port; Render supplies this automatically |
-
-The backend accepts both Render's `postgresql://` connection string and the explicit SQLAlchemy `postgresql+psycopg://` form.
+| Variable | Required in production | Description |
+|---|---:|---|
+| `DATABASE_URL` | Yes | PostgreSQL SQLAlchemy URL; Render's standard URL is normalized automatically |
+| `CORS_ORIGINS` | Yes | Comma-separated exact frontend origins, with no wildcard |
+| `JWT_SECRET` | Yes | Long random signing secret; generated by the Blueprint |
+| `ACCESS_TOKEN_MINUTES` | No | Access-token lifetime; default `15` |
+| `REFRESH_TOKEN_DAYS` | No | Refresh-token lifetime; default `7` |
+| `COOKIE_SECURE` | Yes | Set `true` for HTTPS deployments |
+| `RATE_LIMIT_PER_MINUTE` | No | Per-process IP request limit; default `120` |
+| `DATABASE_POOL_SIZE` | No | Persistent database connections; default `5` |
+| `DATABASE_MAX_OVERFLOW` | No | Temporary overflow connections; default `10` |
+| `DATABASE_POOL_RECYCLE_SECONDS` | No | Recycle interval; default `1800` |
+| `PORT` | Render-managed | Uvicorn port |
 
 ### Frontend
 
-| Variable | Example | Purpose |
-|---|---|---|
-| `VITE_API_URL` | `http://localhost:8000` | Public API base URL embedded at build time |
+| Variable | Required | Description |
+|---|---:|---|
+| `VITE_API_URL` | Yes | Public API origin, without a trailing slash |
+| `VITE_API_TIMEOUT_MS` | No | Per-request timeout; defaults to `25000` ms |
+
+Never commit `.env`, production database credentials, or JWT secrets.
 
 ## Docker
 
-Start PostgreSQL, apply migrations, seed the three sample releases, and run both applications:
-
 ```bash
+docker compose config
 docker compose up --build
 ```
 
-Open:
+The stack starts PostgreSQL, waits for database health, applies all migrations, then starts the API and Nginx-served SPA.
 
-- Frontend: `http://localhost:8080`
+- UI: `http://localhost:8080`
 - API: `http://localhost:8000`
-- API documentation: `http://localhost:8000/docs`
+- Docs: `http://localhost:8000/docs`
 
-Stop the stack with:
+Stop with `docker compose down`. The `postgres_data` volume preserves data.
 
-```bash
-docker compose down
-```
+## Render deployment
 
-The named `postgres_data` volume preserves database contents. Use `docker compose down -v` only when you intentionally want to delete local database data.
+The root [render.yaml](render.yaml) declares managed PostgreSQL, a Docker FastAPI service, and a React static site. It wires the database connection, generates `JWT_SECRET`, enables secure refresh cookies, restricts CORS to the UI origin, configures the API URL at frontend build time, runs Alembic from the backend container, and rewrites SPA routes to `index.html`.
 
-## Deploy to Render
+Exact steps after pushing to GitHub:
 
-The root-level `render.yaml` defines all required resources:
+1. Open [Render Dashboard](https://dashboard.render.com/) and connect the GitHub account that owns this repository.
+2. Choose **New + → Blueprint**.
+3. Select `bhavukm007/ReleaseFlow`.
+4. Confirm the Blueprint path is `render.yaml`, then choose **Apply**.
+5. Wait for `releaseflow-db-bhavukm007`, `releaseflow-api-bhavukm007`, and `releaseflow-web-bhavukm007` to deploy.
+6. Confirm `https://releaseflow-api-bhavukm007.onrender.com/health` returns `{"status":"healthy"}`.
+7. Open `/docs`, create an account in the web UI, create a release, edit a checklist and notes, create a team, and verify the changes survive refresh.
+8. Open two browsers with two invited accounts and verify a team checklist update appears in the other browser.
+9. If Render assigns different service names, set backend `CORS_ORIGINS` to the exact UI origin and frontend `VITE_API_URL` to the exact API origin, then redeploy both.
+10. Submit the GitHub link, live application link, and API docs link from **Project links**.
 
-- `releaseflow-db-bhavukm007`: managed PostgreSQL
-- `releaseflow-api-bhavukm007`: Docker-based FastAPI web service
-- `releaseflow-web-bhavukm007`: React static site
+Free Render services may cold-start, and free database retention policies can change. Check the current Render plan before relying on it for a long-lived production deployment.
 
-The Blueprint connects `DATABASE_URL` to the managed database, restricts `CORS_ORIGINS` to the frontend URL, sets the frontend's `VITE_API_URL`, applies migrations, inserts idempotent sample data, configures the API health check, and adds an SPA rewrite.
+### Free-tier cold starts
 
-### Exact Render Deployment Steps
+Render Free web services spin down after 15 minutes without inbound HTTP or
+WebSocket traffic and can take about one minute to wake. ReleaseFlow handles
+this automatically:
 
-1. Commit and push the latest repository changes to GitHub.
-2. Sign in to [Render](https://dashboard.render.com/) and connect the GitHub account containing this repository.
-3. Click **New +**, then **Blueprint**.
-4. Select the `bhavukm007/ReleaseFlow` repository.
-5. Keep the Blueprint file path as `render.yaml`.
-6. Review the three proposed resources and click **Apply** or **Deploy Blueprint**.
-7. Wait for the PostgreSQL database to become available.
-8. Wait for the API deployment to finish. Its container automatically runs `alembic upgrade head`, runs the idempotent seed script, and starts Uvicorn on Render's assigned `PORT`.
-9. Wait for the frontend static-site build and deployment to finish.
-10. Open `https://releaseflow-api-bhavukm007.onrender.com/health` and confirm `{"status":"healthy"}`.
-11. Open `https://releaseflow-api-bhavukm007.onrender.com/docs` and confirm the OpenAPI page loads.
-12. Open `https://releaseflow-web-bhavukm007.onrender.com`.
-13. Create a release, toggle a checklist item, edit its information, refresh the page, and confirm the changes remain.
-14. If Render changed either public service name, update:
-    - Backend `CORS_ORIGINS` to the exact frontend origin, without a trailing slash.
-    - Frontend `VITE_API_URL` to the exact API origin, without a trailing slash.
-    - Redeploy both services and update the Project Links section above.
-15. Submit the GitHub URL and live frontend URL. The API documentation URL is useful as an additional reviewer link.
+1. The authentication bootstrap first wakes `/health`, avoiding repeated
+   refresh-token rotation during a cold start.
+2. Network errors, timeouts, temporary Render HTML responses, HTTP 408/425/429,
+   and HTTP 5xx responses are retried.
+3. Retries use exponential delays of 1, 2, 4, 8, 16, and 30 seconds.
+4. The UI displays skeletons and **Starting server...** while retrying.
+5. A terminal error is shown only after all seven attempts fail.
 
-Render's free web service can spin down after inactivity, so the first request may take longer. Render's free PostgreSQL database expires after 30 days; deploy close to the assessment date or upgrade the database if the submission must remain available longer.
+The backend logs `startup_phase` records for migrations, Uvicorn execution, and
+application readiness. These timings are visible in Render Logs and make cold
+start regressions measurable.
 
-## Future Improvements
+## Screenshots
 
-Possible extensions include authentication and teams, configurable checklist templates, ownership, audit history, notifications, release dependencies, and CI/CD integrations. They are intentionally excluded from this single-user assignment.
+Add current deployment screenshots here after the public Render URLs are live. Recommended captures: login, My Releases, dynamic checklist with activity timeline, and team management.
+
+## Security and scalability notes
+
+- Passwords are bcrypt-hashed and are never returned.
+- Refresh tokens are hashed at rest, rotated, revocable, HTTP-only, SameSite-protected, and Secure in production.
+- Resource lookup returns `404` for inaccessible releases to reduce identifier disclosure.
+- Authorization is enforced server-side for every release and team mutation.
+- CORS uses an explicit environment-controlled allowlist; GZip and request throttling are enabled.
+- Database foreign keys and indexes support common ownership, team, activity, email, and due-date queries.
+- The included rate limiter and WebSocket registry are process-local. For horizontal multi-instance deployment, use Redis-backed distributed rate limiting and pub/sub.
+
+## Future improvements
+
+- Verified password-reset emails and email ownership verification
+- Redis-backed WebSocket fan-out, distributed rate limits, and job queues
+- Checklist templates, notification preferences, and external email delivery
+- Cursor pagination for very large workspaces
+- Object-level observability, tracing, metrics, and automated browser performance budgets

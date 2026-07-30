@@ -1,8 +1,9 @@
 from datetime import date, datetime, timezone
 from typing import Any
+from uuid import UUID
 
-from sqlalchemy import Date, DateTime, JSON, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Date, DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 
@@ -24,3 +25,6 @@ class Release(Base):
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    team_id: Mapped[UUID | None] = mapped_column(ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+    owner = relationship("User", back_populates="releases", foreign_keys=[owner_id])
