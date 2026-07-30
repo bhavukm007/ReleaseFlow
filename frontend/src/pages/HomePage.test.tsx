@@ -30,6 +30,8 @@ const release: Release = {
   updated_at: "2026-07-26T00:00:00Z",
   owner_id: "00000000-0000-0000-0000-000000000001",
   team_id: null,
+  access_role: "owner",
+  collaborators: [{ user_id: "00000000-0000-0000-0000-000000000001", full_name: "Test User", email: "test@example.com", role: "owner" }],
 };
 
 beforeEach(() => {
@@ -48,11 +50,15 @@ it("loads releases and creates a new release through the modal", async () => {
   await user.click(screen.getByRole("button", { name: "New release" }));
   await user.type(screen.getByLabelText("Release name"), "API Launch");
   await user.type(screen.getByLabelText("Due date"), "2026-08-21");
+  await user.click(screen.getByRole("button", { name: "Add teammate" }));
+  await user.type(screen.getByLabelText("Teammate email 1"), "admin@example.com");
+  await user.selectOptions(screen.getByLabelText("Teammate role 1"), "admin");
   await user.click(screen.getByRole("button", { name: "Create release" }));
 
   await waitFor(() => expect(releaseApi.create).toHaveBeenCalled());
   expect(vi.mocked(releaseApi.create).mock.calls[0][0]).toEqual(expect.objectContaining({
     name: "API Launch", due_date: "2026-08-21", additional_info: null, team_id: null,
+    collaborators: [{ email: "admin@example.com", role: "admin" }],
   }));
   expect(await screen.findByText("Release created")).toBeInTheDocument();
 });

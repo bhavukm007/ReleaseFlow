@@ -2,20 +2,26 @@
 
 ReleaseFlow is a collaborative release-management SaaS application. Individuals and role-controlled teams can plan releases, customize ordered checklists, update notes, and see changes and audit history in real time.
 
+## Live Demo
+
+**[Open ReleaseFlow](https://releaseflow-web-bhavukm007.onrender.com/)**
+
+> The application uses Render's free tier, so the first visit after inactivity
+> may briefly display “Starting server...” while the API wakes automatically.
+
 ## Project links
 
-- GitHub: [https://github.com/bhavukm007/ReleaseFlow](https://github.com/bhavukm007/ReleaseFlow)
-- Live application: `https://releaseflow-web-bhavukm007.onrender.com`
+- Live demo: [https://releaseflow-web-bhavukm007.onrender.com/](https://releaseflow-web-bhavukm007.onrender.com/)
 - API: `https://releaseflow-api-bhavukm007.onrender.com`
 - Interactive API docs: `https://releaseflow-api-bhavukm007.onrender.com/docs`
 
-The Render URLs become active after deploying the Blueprint. If Render changes a service name, update these links and the corresponding Render environment variables.
+If a Render service is renamed, update these links and the corresponding environment variables.
 
 ## Features
 
 - Email/password signup and login with bcrypt, short-lived JWT access tokens, rotating refresh tokens, secure HTTP-only cookies, logout, and session revocation
 - Private releases plus collaborative team workspaces
-- Owner, admin, and member permissions enforced by the API
+- Release-scoped owner, admin, and other permissions enforced by the API
 - Existing-user and pending-email team invitations with automatic membership on signup
 - Dynamic ordered JSON checklists: add, rename, delete, reorder, check, and uncheck steps
 - Automatically computed `planned`, `ongoing`, and `done` statuses
@@ -40,13 +46,14 @@ FastAPI API
 PostgreSQL + Alembic
 ```
 
-The access token is kept only in browser memory. The longer-lived refresh token is stored in a secure, HTTP-only cookie, hashed in the database, rotated on refresh, and revoked on logout. API queries enforce personal ownership or active team membership. Destructive team operations require an owner or admin, while team deletion and ownership transfer require the owner.
+The access token is kept only in browser memory. The longer-lived refresh token is stored in a secure, HTTP-only cookie, hashed in the database, rotated on refresh, and revoked on logout. Release access is explicit: belonging to a team does **not** reveal every team release. A user sees a release only when they own it or appear in its `release_collaborators` list.
 
 ## Database schema
 
 ```mermaid
 erDiagram
     USERS ||--o{ RELEASES : owns
+    USERS ||--o{ RELEASE_COLLABORATORS : receives_access
     USERS ||--o{ TEAM_MEMBERS : joins
     USERS ||--o{ AUTH_SESSIONS : has
     USERS ||--o{ ACTIVITIES : performs
@@ -56,6 +63,7 @@ erDiagram
     TEAMS ||--o{ TEAM_INVITATIONS : has
     TEAMS ||--o{ RELEASES : contains
     RELEASES ||--o{ ACTIVITIES : records
+    RELEASES ||--o{ RELEASE_COLLABORATORS : shares
 
     USERS {
       uuid id PK
@@ -89,6 +97,13 @@ erDiagram
       uuid user_id FK
       enum role
     }
+    RELEASE_COLLABORATORS {
+      uuid id PK
+      int release_id FK
+      uuid user_id FK
+      enum role
+      timestamptz created_at
+    }
     TEAM_INVITATIONS {
       uuid id PK
       uuid team_id FK
@@ -117,6 +132,21 @@ erDiagram
 
 Checklist items remain embedded in each release's ordered JSON object; there is no steps table. A release is personal when `team_id` is null and collaborative when `team_id` references a team.
 
+### Release permission matrix
+
+| Action | Owner | Admin | Other |
+|---|:---:|:---:|:---:|
+| View release | ✅ | ✅ | ✅ |
+| Edit name, due date, and notes | ✅ | ✅ | ❌ |
+| Check/uncheck checklist items | ✅ | ✅ | ✅ |
+| Add, rename, reorder, or delete checklist items | ✅ | ✅ | ✅ |
+| Add/remove teammates and change roles | ✅ | ✅ | ❌ |
+| Delete release | ✅ | ❌ | ❌ |
+
+Team owners and admins can still manage team membership. Release owners and
+release admins manage access to an individual release. A team member receives
+no release access until explicitly added.
+
 ## API
 
 All routes except signup, login, refresh, health, and the OpenAPI pages require `Authorization: Bearer <access-token>`.
@@ -136,6 +166,9 @@ All routes except signup, login, refresh, health, and the OpenAPI pages require 
 | `PATCH` | `/releases/{id}/checklist` | Replace the ordered dynamic checklist |
 | `PATCH` | `/releases/{id}/info` | Update release notes |
 | `GET` | `/releases/{id}/activities` | Read the newest activity first |
+| `POST` | `/releases/{id}/collaborators` | Add a registered teammate to one release |
+| `PATCH` | `/releases/{id}/collaborators/{user_id}` | Change a release role |
+| `DELETE` | `/releases/{id}/collaborators/{user_id}` | Remove release access |
 | `GET` | `/activities?limit=` | Read recent accessible workspace activity |
 | `DELETE` | `/releases/{id}` | Delete an authorized release |
 | `GET` | `/teams` | List teams and membership details |
@@ -284,7 +317,7 @@ Exact steps after pushing to GitHub:
 7. Open `/docs`, create an account in the web UI, create a release, edit a checklist and notes, create a team, and verify the changes survive refresh.
 8. Open two browsers with two invited accounts and verify a team checklist update appears in the other browser.
 9. If Render assigns different service names, set backend `CORS_ORIGINS` to the exact UI origin and frontend `VITE_API_URL` to the exact API origin, then redeploy both.
-10. Submit the GitHub link, live application link, and API docs link from **Project links**.
+10. Submit the live application link and API docs link from **Project links**.
 
 Free Render services may cold-start, and free database retention policies can change. Check the current Render plan before relying on it for a long-lived production deployment.
 

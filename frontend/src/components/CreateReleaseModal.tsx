@@ -3,15 +3,23 @@ import { GripVertical, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { STEP_NAMES, type ReleaseInput } from "../types";
+import { STEP_NAMES, type CollaboratorInput, type ReleaseInput } from "../types";
 
 const schema = z.object({ name: z.string().trim().min(1, "Name is required"), due_date: z.string().min(1, "Due date is required"), additional_info: z.string().optional() });
 
 export function CreateReleaseModal({ onClose, onCreate, teamId = null }: { onClose: () => void; onCreate: (data: ReleaseInput) => Promise<void>; teamId?: string | null }) {
   const [steps, setSteps] = useState<string[]>([...STEP_NAMES]);
   const [dragged, setDragged] = useState<number | null>(null);
+  const [collaborators, setCollaborators] = useState<CollaboratorInput[]>([]);
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<ReleaseInput>({ resolver: zodResolver(schema) });
-  const submit = (data: ReleaseInput) => onCreate({ ...data, checklist_items: steps, team_id: teamId });
+  const submit = (data: ReleaseInput) => onCreate({
+    ...data,
+    checklist_items: steps,
+    team_id: teamId,
+    collaborators: collaborators
+      .filter((item) => item.email.trim())
+      .map((item) => ({ ...item, email: item.email.trim().toLowerCase() })),
+  });
   const rename = (index: number, name: string) => setSteps((items) => items.map((item, position) => position === index ? name : item));
   const remove = (index: number) => setSteps((items) => items.filter((_, position) => position !== index));
   const drop = (target: number) => {
@@ -25,6 +33,9 @@ export function CreateReleaseModal({ onClose, onCreate, teamId = null }: { onClo
       <label className="field">Release name<input autoFocus {...register("name")} placeholder="e.g. Summer Launch" />{errors.name && <span>{errors.name.message}</span>}</label>
       <label className="field">Due date<input type="date" {...register("due_date")} />{errors.due_date && <span>{errors.due_date.message}</span>}</label>
       <label className="field">Additional information <em>Optional</em><textarea rows={3} {...register("additional_info")} placeholder="Context, links, rollout notes…" /></label>
+      <div className="mt-5"><div className="mb-3 flex items-center justify-between"><div><p className="font-bold">Release teammates</p><p className="text-xs text-slate-500">Only people added here can see this release.</p></div><button type="button" className="btn-secondary px-3 py-2 text-sm" onClick={() => setCollaborators((items) => [...items, { email: "", role: "other" }])}><Plus size={16} />Add teammate</button></div>
+        <div className="space-y-2">{collaborators.map((collaborator, index) => <div key={index} className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3 sm:flex-row dark:border-slate-700"><input type="email" aria-label={`Teammate email ${index + 1}`} value={collaborator.email} onChange={(event) => setCollaborators((items) => items.map((item, position) => position === index ? { ...item, email: event.target.value } : item))} placeholder="teammate@example.com" className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-slate-700" required /><select aria-label={`Teammate role ${index + 1}`} value={collaborator.role} onChange={(event) => setCollaborators((items) => items.map((item, position) => position === index ? { ...item, role: event.target.value as CollaboratorInput["role"] } : item))} className="rounded-lg border border-slate-200 bg-transparent px-3 py-2 text-sm dark:border-slate-700"><option value="other">Other — checklist only</option><option value="admin">Admin — edit and manage</option></select><button type="button" aria-label={`Remove teammate ${index + 1}`} onClick={() => setCollaborators((items) => items.filter((_, position) => position !== index))} className="rounded p-2 text-red-500 hover:bg-red-50"><Trash2 size={16} /></button></div>)}</div>
+      </div>
       <div className="mt-5"><div className="mb-3 flex items-center justify-between"><div><p className="font-bold">Checklist</p><p className="text-xs text-slate-500">Drag to reorder. Names must be unique.</p></div><button type="button" className="btn-secondary px-3 py-2 text-sm" onClick={() => setSteps((items) => [...items, `New Step ${items.length + 1}`])}><Plus size={16} />Add step</button></div>
         <div className="max-h-56 space-y-2 overflow-y-auto">{steps.map((step, index) => <div key={`${index}-${step}`} draggable onDragStart={() => setDragged(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => drop(index)} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800"><GripVertical className="cursor-grab text-slate-400" size={18} /><input aria-label={`Step ${index + 1}`} value={step} onChange={(event) => rename(index, event.target.value)} className="min-w-0 flex-1 bg-transparent px-2 py-1 text-sm font-semibold outline-none" /><button type="button" aria-label={`Delete ${step}`} disabled={steps.length === 1} onClick={() => remove(index)} className="rounded p-1 text-red-500 hover:bg-red-50"><Trash2 size={16} /></button></div>)}</div>
       </div>

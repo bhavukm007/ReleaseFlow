@@ -2,7 +2,9 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from app.models.release import ReleaseRole
 
 DEFAULT_STEP_NAMES = (
     "Code Freeze",
@@ -15,6 +17,23 @@ DEFAULT_STEP_NAMES = (
     "Post Deployment Verification",
 )
 Status = Literal["planned", "ongoing", "done"]
+AccessRole = Literal["owner", "admin", "other"]
+
+
+class CollaboratorCreate(BaseModel):
+    email: EmailStr
+    role: ReleaseRole = ReleaseRole.other
+
+
+class CollaboratorRead(BaseModel):
+    user_id: UUID
+    full_name: str
+    email: EmailStr
+    role: AccessRole
+
+
+class CollaboratorRoleUpdate(BaseModel):
+    role: ReleaseRole
 
 
 def default_steps() -> dict[str, bool]:
@@ -27,6 +46,7 @@ class ReleaseCreate(BaseModel):
     additional_info: str | None = Field(default=None, max_length=10_000)
     checklist_items: list[str] | None = None
     team_id: UUID | None = None
+    collaborators: list[CollaboratorCreate] = Field(default_factory=list, max_length=50)
 
     @field_validator("name")
     @classmethod
@@ -49,6 +69,14 @@ class ReleaseCreate(BaseModel):
         if any(len(item) > 200 for item in cleaned):
             raise ValueError("Checklist item names cannot exceed 200 characters")
         return cleaned
+
+    @field_validator("collaborators")
+    @classmethod
+    def unique_collaborators(cls, value: list[CollaboratorCreate]) -> list[CollaboratorCreate]:
+        emails = [str(item.email).lower() for item in value]
+        if len(set(emails)) != len(emails):
+            raise ValueError("Collaborator emails must be unique")
+        return value
 
 
 class ReleaseUpdate(BaseModel):
@@ -104,3 +132,5 @@ class ReleaseRead(BaseModel):
     updated_at: datetime
     owner_id: UUID
     team_id: UUID | None
+    access_role: AccessRole
+    collaborators: list[CollaboratorRead]

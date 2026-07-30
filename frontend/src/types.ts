@@ -3,13 +3,20 @@ export const STEP_NAMES = [
   "Performance Testing", "Deployment Ready", "Production Deployment", "Post Deployment Verification",
 ] as const;
 export type Status = "planned" | "ongoing" | "done";
+export type ReleaseAccessRole = "owner" | "admin" | "other";
+export interface ReleaseCollaborator {
+  user_id: string; full_name: string; email: string; role: ReleaseAccessRole;
+}
+export interface CollaboratorInput { email: string; role: Exclude<ReleaseAccessRole, "owner"> }
 export interface Release {
   id: number; name: string; due_date: string; additional_info: string | null;
   steps: Record<string, boolean>; status: Status; completed_steps: number; total_steps: number;
   created_at: string; updated_at: string;
   owner_id: string; team_id: string | null;
+  access_role: ReleaseAccessRole;
+  collaborators: ReleaseCollaborator[];
 }
-export interface ReleaseInput { name: string; due_date: string; additional_info?: string | null; checklist_items?: string[]; team_id?: string | null }
+export interface ReleaseInput { name: string; due_date: string; additional_info?: string | null; checklist_items?: string[]; team_id?: string | null; collaborators?: CollaboratorInput[] }
 export interface User { id: string; full_name: string; email: string; created_at: string; last_login: string | null }
 export type TeamRole = "owner" | "admin" | "member";
 export interface TeamMember { user_id: string; full_name: string; email: string; role: TeamRole }

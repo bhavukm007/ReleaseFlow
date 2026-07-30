@@ -8,14 +8,21 @@ import { STEP_NAMES, type Release } from "../types";
 import { ReleaseDetailsPage } from "./ReleaseDetailsPage";
 
 vi.mock("../api/teams", () => ({ teamApi: { list: vi.fn().mockResolvedValue([]) } }));
+vi.mock("../contexts/AuthContext", () => ({ useAuth: () => ({
+  user: { id: "00000000-0000-0000-0000-000000000001", full_name: "Test User", email: "test@example.com" },
+}) }));
 
 vi.mock("../api/releases", () => ({
   releaseApi: {
     get: vi.fn(),
     updateSteps: vi.fn(),
+    update: vi.fn(),
     updateChecklist: vi.fn(),
     updateInfo: vi.fn(),
     activities: vi.fn(),
+    addCollaborator: vi.fn(),
+    updateCollaborator: vi.fn(),
+    removeCollaborator: vi.fn(),
     delete: vi.fn(),
   },
 }));
@@ -33,6 +40,8 @@ const plannedRelease: Release = {
   updated_at: "2026-07-26T00:00:00Z",
   owner_id: "00000000-0000-0000-0000-000000000001",
   team_id: null,
+  access_role: "owner",
+  collaborators: [{ user_id: "00000000-0000-0000-0000-000000000001", full_name: "Test User", email: "test@example.com", role: "owner" }],
 };
 
 beforeEach(() => {
@@ -48,6 +57,12 @@ beforeEach(() => {
     user_name: "Alice", action: "checklist_completed", metadata: { step: "QA Completed" },
     created_at: "2026-07-26T10:25:00Z",
   }]);
+  vi.mocked(releaseApi.addCollaborator).mockResolvedValue({
+    ...plannedRelease,
+    collaborators: [...plannedRelease.collaborators, {
+      user_id: "user-2", full_name: "Admin User", email: "admin@example.com", role: "admin",
+    }],
+  });
 });
 
 it("updates a checklist step and refreshes status and progress immediately", async () => {
@@ -67,4 +82,11 @@ it("updates a checklist step and refreshes status and progress immediately", asy
   await waitFor(() => expect(screen.getByText("ongoing")).toBeInTheDocument());
   expect(screen.getByText("1 / 8 Completed")).toBeInTheDocument();
   await waitFor(() => expect(releaseApi.updateChecklist).toHaveBeenCalledTimes(1));
+  await user.type(screen.getByLabelText("Release teammate email"), "admin@example.com");
+  await user.selectOptions(screen.getByLabelText("Release teammate role"), "admin");
+  await user.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() => expect(releaseApi.addCollaborator).toHaveBeenCalledWith(7, {
+    email: "admin@example.com", role: "admin",
+  }));
+  expect(await screen.findByText("Admin User")).toBeInTheDocument();
 });

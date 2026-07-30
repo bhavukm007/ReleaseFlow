@@ -120,8 +120,69 @@ def test_team_invitation_permissions_and_pending_signup(client: TestClient) -> N
         "/releases",
         json={"name": "Team Launch", "due_date": "2026-09-01", "team_id": team["id"]},
     ).json()
+    assert client.get(f"/releases/{team_release['id']}", headers=member_headers).status_code == 404
+    assert client.get(f"/releases?team_id={team['id']}", headers=member_headers).json() == []
+    shared = client.post(
+        f"/releases/{team_release['id']}/collaborators",
+        json={"email": "future@example.com", "role": "other"},
+    )
+    assert shared.status_code == 201
     assert client.get(f"/releases/{team_release['id']}", headers=member_headers).status_code == 200
     assert client.delete(f"/releases/{team_release['id']}", headers=member_headers).status_code == 404
+
+
+def test_release_scoped_roles_enforce_permissions(client: TestClient) -> None:
+    admin = client.post("/auth/signup", json={
+        "full_name": "Release Admin", "email": "admin@example.com", "password": "StrongPassword123!",
+    }).json()
+    other = client.post("/auth/signup", json={
+        "full_name": "Checklist Editor", "email": "checklist@example.com", "password": "StrongPassword123!",
+    }).json()
+    outsider = client.post("/auth/signup", json={
+        "full_name": "Outsider", "email": "outsider@example.com", "password": "StrongPassword123!",
+    }).json()
+    release = client.post("/releases", json={
+        "name": "Scoped Release",
+        "due_date": "2026-09-10",
+        "collaborators": [
+            {"email": "admin@example.com", "role": "admin"},
+            {"email": "checklist@example.com", "role": "other"},
+        ],
+    }).json()
+    admin_headers = {"Authorization": f"Bearer {admin['access_token']}"}
+    other_headers = {"Authorization": f"Bearer {other['access_token']}"}
+    outsider_headers = {"Authorization": f"Bearer {outsider['access_token']}"}
+
+    assert client.get(f"/releases/{release['id']}", headers=outsider_headers).status_code == 404
+    assert client.get("/releases", headers=outsider_headers).json() == []
+    assert client.get(f"/releases/{release['id']}", headers=admin_headers).json()["access_role"] == "admin"
+    assert client.patch(
+        f"/releases/{release['id']}/info",
+        headers=admin_headers,
+        json={"additional_info": "Admin can edit notes"},
+    ).status_code == 200
+    assert client.delete(f"/releases/{release['id']}", headers=admin_headers).status_code == 404
+    assert client.post(
+        f"/releases/{release['id']}/collaborators",
+        headers=admin_headers,
+        json={"email": "outsider@example.com", "role": "other"},
+    ).status_code == 201
+
+    assert client.patch(
+        f"/releases/{release['id']}/info",
+        headers=other_headers,
+        json={"additional_info": "Not allowed"},
+    ).status_code == 404
+    checklist = client.patch(
+        f"/releases/{release['id']}/checklist",
+        headers=other_headers,
+        json={"items": [{"name": "New checklist item", "completed": True}]},
+    )
+    assert checklist.status_code == 200
+    assert checklist.json()["steps"] == {"New checklist item": True}
+    assert client.delete(f"/releases/{release['id']}", headers=other_headers).status_code == 404
+
+    assert client.delete(f"/releases/{release['id']}").status_code == 204
 
 
 def test_realtime_websocket_authentication(client: TestClient) -> None:
